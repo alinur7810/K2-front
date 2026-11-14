@@ -1206,6 +1206,17 @@ https://alinur7810.github.io/K2-front/
 
 Do not choose “Deploy from a branch”; that serves source files instead of the built Vite app.
 
+### Pointing the deployed site at a live backend
+
+Add repository variables under **Settings → Secrets and variables → Actions → Variables**:
+
+```text
+VITE_USE_MOCKS=false
+VITE_API_BASE_URL=https://your-backend.example.com/api/v1
+```
+
+Then rerun the **Deploy GitHub Pages** workflow. The workflow passes both values into `npm run build`. The backend must allow CORS from `https://alinur7810.github.io`.
+
 ### How routing works on Pages
 
 - `vite.config.ts` derives the production base path from `GITHUB_REPOSITORY`, falling back to `/K2-front/`.

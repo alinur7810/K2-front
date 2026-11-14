@@ -46,7 +46,9 @@ export const Navbar: React.FC<NavbarProps> = ({ useMocks, onToggleMocks }) => {
         </nav>
 
         <button
+          type="button"
           onClick={onToggleMocks}
+          aria-pressed={!useMocks}
           title="Toggle data source: sample dataset or live backend"
           className="order-2 ml-auto inline-flex items-center gap-2 rounded border border-earth-line bg-earth-raised px-2.5 py-1.5 text-xs font-medium text-earth-slate transition-colors hover:border-earth-muted/40 hover:text-earth-ink md:order-3 md:ml-0"
         >

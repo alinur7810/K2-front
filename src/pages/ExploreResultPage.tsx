@@ -25,16 +25,32 @@ export const ExploreResultPage: React.FC = () => {
   const sectionParam = searchParams.get('section') || 'water';
   const objectParam = searchParams.get('object') || 'issyk_kul';
   const variableParam = searchParams.get('variable') || 'water_level';
-  const fromParam = Number(searchParams.get('from') || 2000);
-  const toParam = Number(searchParams.get('to') || 2025);
-  const latParam = searchParams.get('lat') ? Number(searchParams.get('lat')) : null;
-  const lonParam = searchParams.get('lon') ? Number(searchParams.get('lon')) : null;
+  const rawFrom = Number(searchParams.get('from') || 2000);
+  const rawTo = Number(searchParams.get('to') || 2025);
+  const fromParam = Number.isFinite(rawFrom) ? rawFrom : 2000;
+  const toParam = Number.isFinite(rawTo) ? rawTo : 2025;
+  const rawLat = searchParams.get('lat');
+  const rawLon = searchParams.get('lon');
+  const latValue = rawLat !== null ? Number(rawLat) : null;
+  const lonValue = rawLon !== null ? Number(rawLon) : null;
+  const latParam = latValue !== null && Number.isFinite(latValue) ? latValue : null;
+  const lonParam = lonValue !== null && Number.isFinite(lonValue) ? lonValue : null;
+  const hasPoint = latParam !== null && lonParam !== null;
+  const modeParam = searchParams.get('mode');
+  const initialPlaceMode: 'object' | 'region' | 'point' =
+    hasPoint || modeParam === 'point' ? 'point' : modeParam === 'region' ? 'region' : 'object';
 
   const [placeMode, setPlaceMode] = useState<'object' | 'region' | 'point'>(
-    latParam !== null ? 'point' : 'object'
+    initialPlaceMode
   );
-  const [showMapPicker, setShowMapPicker] = useState<boolean>(false);
+  const [showMapPicker, setShowMapPicker] = useState<boolean>(
+    modeParam === 'point' && !hasPoint
+  );
   const [showScientificProof, setShowScientificProof] = useState<boolean>(false);
+
+  useEffect(() => {
+    setPlaceMode(initialPlaceMode);
+  }, [initialPlaceMode]);
 
   const [sections, setSections] = useState<SectionDto[]>([]);
   const [objects, setObjects] = useState<GeoObjectDto[]>([]);
@@ -66,25 +82,48 @@ export const ExploreResultPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     apiClient
-      .getVariables(sectionParam, objectParam)
+      .getVariables(sectionParam, placeMode === 'point' ? undefined : objectParam)
       .then((vars) => {
+        if (cancelled) return;
         setVariables(vars);
         if (vars.length > 0 && !vars.some((v) => v.code === variableParam)) {
           updateQuery({ variable: vars[0].code });
         }
       })
-      .catch((e) => setError(e.message));
-  }, [sectionParam, objectParam]);
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sectionParam, objectParam, placeMode]);
 
   const queryArgs =
-    placeMode === 'point' && latParam !== null && lonParam !== null
-      ? { lat: latParam, lon: lonParam, variable: variableParam, from: fromParam, to: toParam }
+    placeMode === 'point' && hasPoint
+      ? { lat: latParam!, lon: lonParam!, variable: variableParam, from: fromParam, to: toParam }
       : { object: objectParam, variable: variableParam, from: fromParam, to: toParam };
 
+  const shouldFetch = placeMode !== 'point' || hasPoint;
+
   useEffect(() => {
+    if (!shouldFetch) {
+      setSeries(null);
+      setTrend(null);
+      setChain(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
     setLoading(true);
     setError(null);
+    setSeries(null);
+    setTrend(null);
+    setChain(null);
 
     Promise.all([
       apiClient.getSeries(queryArgs),
@@ -92,21 +131,59 @@ export const ExploreResultPage: React.FC = () => {
       apiClient.getChain(queryArgs),
     ])
       .then(([sRes, tRes, cRes]) => {
+        if (cancelled) return;
         setSeries(sRes);
         setTrend(tRes);
         setChain(cRes);
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [objectParam, variableParam, fromParam, toParam, latParam, lonParam, placeMode]);
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-  const filteredObjects = objects.filter((o) =>
-    placeMode === 'region' ? o.type === 'region' : o.type !== 'region'
-  );
+    return () => {
+      cancelled = true;
+    };
+  }, [objectParam, variableParam, fromParam, toParam, latParam, lonParam, placeMode, shouldFetch]);
+
+  const objectsForMode = (mode: 'object' | 'region') =>
+    objects.filter((o) => (mode === 'region' ? o.type === 'region' : o.type !== 'region'));
+
+  const filteredObjects = objectsForMode(placeMode === 'region' ? 'region' : 'object');
+
+  useEffect(() => {
+    if (placeMode === 'point' || objects.length === 0) return;
+    const options = objectsForMode(placeMode);
+    if (options.length > 0 && !options.some((o) => o.code === objectParam)) {
+      updateQuery({ object: options[0].code });
+    }
+  }, [objects, placeMode]);
+
+  const selectPlaceMode = (mode: 'object' | 'region' | 'point') => {
+    setPlaceMode(mode);
+    if (mode === 'point') {
+      updateQuery({ mode: 'point' });
+      setShowMapPicker(true);
+      return;
+    }
+
+    const options = objectsForMode(mode);
+    const nextObject = options.some((o) => o.code === objectParam)
+      ? objectParam
+      : options[0]?.code;
+    updateQuery({
+      mode: mode === 'region' ? 'region' : null,
+      object: nextObject ?? objectParam,
+      lat: null,
+      lon: null,
+    });
+  };
 
   const catalogObject = objects.find((o) => o.code === objectParam);
   const spatialCoordinates =
-    placeMode === 'point' && latParam !== null && lonParam !== null
+    placeMode === 'point' && hasPoint
       ? `${latParam}° N, ${lonParam}° E (selected WGS84 point)`
       : catalogObject
       ? `${catalogObject.marker[0].toFixed(2)}° N, ${catalogObject.marker[1].toFixed(2)}° E / ${catalogObject.type.toUpperCase()}`
@@ -120,7 +197,7 @@ export const ExploreResultPage: React.FC = () => {
     qaTotal > 0 ? `${((count / qaTotal) * 100).toFixed(1)}%` : '0.0%';
 
   const reproQuery =
-    placeMode === 'point' && latParam !== null && lonParam !== null
+    placeMode === 'point' && hasPoint
       ? `GET /api/v1/trend?lat=${latParam}&lon=${lonParam}&variable=${variableParam}&from=${fromParam}&to=${toParam}`
       : `GET /api/v1/trend?object=${objectParam}&variable=${variableParam}&from=${fromParam}&to=${toParam}`;
 
@@ -168,10 +245,8 @@ export const ExploreResultPage: React.FC = () => {
                   <button
                     key={m}
                     type="button"
-                    onClick={() => {
-                      setPlaceMode(m);
-                      if (m === 'point') setShowMapPicker(true);
-                    }}
+                    onClick={() => selectPlaceMode(m)}
+                    aria-pressed={placeMode === m}
                     className={`rounded border px-2 py-0.5 text-[11px] font-medium transition-colors ${
                       placeMode === m
                         ? 'border-earth-ink bg-earth-ink text-white'
@@ -203,7 +278,7 @@ export const ExploreResultPage: React.FC = () => {
                 className="nasa-button-light flex w-full items-center justify-between"
               >
                 <span>
-                  {latParam && lonParam
+                  {hasPoint
                     ? `${latParam}°N / ${lonParam}°E`
                     : 'Pick a point on the map'}
                 </span>
@@ -268,14 +343,22 @@ export const ExploreResultPage: React.FC = () => {
               mode="picker"
               catalogObjects={objects}
               selectedObjectCode={objectParam}
-              pickedPoint={latParam && lonParam ? { lat: latParam, lon: lonParam } : null}
+              pickedPoint={hasPoint ? { lat: latParam, lon: lonParam } : null}
               onSelectObject={(code) => {
-                setPlaceMode('object');
-                updateQuery({ object: code, lat: null, lon: null });
+                const nextMode = objects.find((o) => o.code === code)?.type === 'region'
+                  ? 'region'
+                  : 'object';
+                setPlaceMode(nextMode);
+                updateQuery({
+                  mode: nextMode === 'region' ? 'region' : null,
+                  object: code,
+                  lat: null,
+                  lon: null,
+                });
               }}
               onPickPoint={(lat, lon) => {
                 setPlaceMode('point');
-                updateQuery({ lat, lon });
+                updateQuery({ mode: 'point', lat, lon, object: null });
               }}
             />
           </div>
@@ -286,7 +369,13 @@ export const ExploreResultPage: React.FC = () => {
         <div className="panel panel-error px-4 py-3 text-sm">Data link error: {error}</div>
       )}
 
-      {loading && (
+      {!loading && placeMode === 'point' && !hasPoint && (
+        <div className="panel px-4 py-10 text-center text-sm text-earth-muted">
+          Pick a point on the map to load the satellite series, trend test and process chain.
+        </div>
+      )}
+
+      {loading && shouldFetch && (
         <div className="panel px-4 py-10 text-center text-sm text-earth-muted">
           Loading the series and running the Hamed–Rao Mann–Kendall test…
         </div>

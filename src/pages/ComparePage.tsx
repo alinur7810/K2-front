@@ -20,14 +20,23 @@ export const ComparePage: React.FC = () => {
 
   const [variables, setVariables] = useState<VariableDto[]>([]);
   const [objects, setObjects] = useState<GeoObjectDto[]>([]);
-  const [objectA, setObjectA] = useState<string>('chuy_reg');
-  const [objectB, setObjectB] = useState<string>('batken_reg');
-  const [isAutoMode, setIsAutoMode] = useState<boolean>(true);
+  const [objectA, setObjectA] = useState<string>(
+    () => searchParams.get('objectA') || 'chuy_reg',
+  );
+  const [objectB, setObjectB] = useState<string>(
+    () => searchParams.get('objectB') || 'batken_reg',
+  );
+  const [isAutoMode, setIsAutoMode] = useState<boolean>(
+    () => !(searchParams.get('objectA') && searchParams.get('objectB')),
+  );
 
   const [pairData, setPairData] = useState<ComparePairResponseDto | null>(null);
   const [tableRows, setTableRows] = useState<ObjectTrendTableRowDto[]>([]);
   const [sortAsc, setSortAsc] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [pairLoading, setPairLoading] = useState<boolean>(true);
+  const [tableLoading, setTableLoading] = useState<boolean>(true);
+  const [pairError, setPairError] = useState<string | null>(null);
+  const [tableError, setTableError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([apiClient.getVariables(), apiClient.getObjects()])
@@ -35,11 +44,31 @@ export const ComparePage: React.FC = () => {
         setVariables(vars);
         setObjects(objs);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setPairError(e.message));
   }, []);
 
   useEffect(() => {
-    setError(null);
+    const a = searchParams.get('objectA');
+    const b = searchParams.get('objectB');
+    if (a && b) {
+      setObjectA(a);
+      setObjectB(b);
+      setIsAutoMode(false);
+    } else {
+      setIsAutoMode(true);
+    }
+  }, [searchParams]);
+
+  const pairRequestKey = isAutoMode
+    ? `auto:${variableParam}:${fromParam}:${toParam}`
+    : `manual:${variableParam}:${objectA}:${objectB}:${fromParam}:${toParam}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    setPairLoading(true);
+    setPairError(null);
+    setPairData(null);
+
     const promise = isAutoMode
       ? apiClient.getCompareAuto({ variable: variableParam, from: fromParam, to: toParam })
       : apiClient.getCompareManual({
@@ -52,17 +81,81 @@ export const ComparePage: React.FC = () => {
 
     promise
       .then((res) => {
+        if (cancelled) return;
         setPairData(res);
         setObjectA(res.object_a.series.object_code);
         setObjectB(res.object_b.series.object_code);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        if (!cancelled) setPairError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setPairLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pairRequestKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTableLoading(true);
+    setTableError(null);
+    setTableRows([]);
 
     apiClient
       .getTrendsTable({ variable: variableParam, from: fromParam, to: toParam })
-      .then(setTableRows)
-      .catch((e) => setError(e.message));
-  }, [variableParam, fromParam, toParam, objectA, objectB, isAutoMode]);
+      .then((rows) => {
+        if (!cancelled) setTableRows(rows);
+      })
+      .catch((e) => {
+        if (!cancelled) setTableError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setTableLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [variableParam, fromParam, toParam]);
+
+  const sectionForVariable = (code: string) =>
+    variables.find((v) => v.code === code)?.section ?? 'water';
+
+  const updateQuery = (overrides: {
+    variable?: string;
+    from?: number;
+    to?: number;
+    nextObjectA?: string | null;
+    nextObjectB?: string | null;
+  }) => {
+    const next = new URLSearchParams();
+    next.set('variable', overrides.variable ?? variableParam);
+    next.set('from', String(overrides.from ?? fromParam));
+    next.set('to', String(overrides.to ?? toParam));
+
+    const nextA =
+      overrides.nextObjectA === null
+        ? null
+        : overrides.nextObjectA ?? (isAutoMode ? null : objectA);
+    const nextB =
+      overrides.nextObjectB === null
+        ? null
+        : overrides.nextObjectB ?? (isAutoMode ? null : objectB);
+
+    if (nextA && nextB) {
+      next.set('objectA', nextA);
+      next.set('objectB', nextB);
+    }
+
+    setSearchParams(next);
+  };
+
+  const updatePeriod = (nextFrom: number, nextTo: number) => {
+    updateQuery({ from: nextFrom, to: nextTo });
+  };
 
   const sortedRows = [...tableRows].sort((x, y) => {
     const aVal = x.sen_slope ?? 0;
@@ -84,26 +177,23 @@ export const ComparePage: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setIsAutoMode(true)}
+            onClick={() => {
+              setIsAutoMode(true);
+              updateQuery({ nextObjectA: null, nextObjectB: null });
+            }}
+            aria-pressed={isAutoMode}
             className="nasa-button"
           >
             Auto-pair opposite trends
           </button>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2 xl:grid-cols-4">
           <div>
             <label className="label mb-1.5 block">Target parameter</label>
             <select
               value={variableParam}
-              onChange={(e) => {
-                setIsAutoMode(true);
-                setSearchParams({
-                  variable: e.target.value,
-                  from: String(fromParam),
-                  to: String(toParam),
-                });
-              }}
+              onChange={(e) => updateQuery({ variable: e.target.value })}
               className="nasa-field"
             >
               {variables.map((v) => (
@@ -119,8 +209,10 @@ export const ComparePage: React.FC = () => {
             <select
               value={objectA}
               onChange={(e) => {
+                const next = e.target.value;
+                setObjectA(next);
                 setIsAutoMode(false);
-                setObjectA(e.target.value);
+                updateQuery({ nextObjectA: next, nextObjectB: objectB });
               }}
               className="nasa-field"
             >
@@ -137,8 +229,10 @@ export const ComparePage: React.FC = () => {
             <select
               value={objectB}
               onChange={(e) => {
+                const next = e.target.value;
+                setObjectB(next);
                 setIsAutoMode(false);
-                setObjectB(e.target.value);
+                updateQuery({ nextObjectA: objectA, nextObjectB: next });
               }}
               className="nasa-field"
             >
@@ -149,7 +243,45 @@ export const ComparePage: React.FC = () => {
               ))}
             </select>
           </div>
+
+          <div>
+            <label className="label mb-1.5 block">Observation period</label>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="number"
+                min={1990}
+                max={toParam - 1}
+                value={fromParam}
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  const next = Number(e.target.value);
+                  if (Number.isFinite(next)) updatePeriod(next, toParam);
+                }}
+                className="nasa-field font-mono"
+                aria-label="Comparison start year"
+              />
+              <input
+                type="number"
+                min={fromParam + 1}
+                max={2025}
+                value={toParam}
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  const next = Number(e.target.value);
+                  if (Number.isFinite(next)) updatePeriod(fromParam, next);
+                }}
+                className="nasa-field font-mono"
+                aria-label="Comparison end year"
+              />
+            </div>
+          </div>
         </div>
+
+        {!isAutoMode && objectA === objectB && (
+          <div className="border-t border-earth-hairline bg-[#FDF6EC] px-6 py-2 text-xs text-[#7A3E0A]">
+            Manual comparison needs two different objects. Choose another object for A or B.
+          </div>
+        )}
 
         {pairData && (
           <div className="flex flex-wrap items-center gap-2 border-t border-earth-hairline bg-earth-soft px-6 py-3 text-xs leading-relaxed text-earth-slate">
@@ -161,8 +293,28 @@ export const ComparePage: React.FC = () => {
         )}
       </section>
 
-      {error && (
-        <div className="panel panel-error px-4 py-3 text-sm">Data link error: {error}</div>
+      {pairError && (
+        <div className="panel panel-error px-4 py-3 text-sm">
+          Data link error while loading the comparison pair: {pairError}
+        </div>
+      )}
+
+      {tableError && (
+        <div className="panel panel-error px-4 py-3 text-sm">
+          Data link error while loading the screening table: {tableError}
+        </div>
+      )}
+
+      {pairLoading && (
+        <div className="panel px-4 py-10 text-center text-sm text-earth-muted">
+          Loading the comparison pair and screening table…
+        </div>
+      )}
+
+      {!pairLoading && !pairData && !pairError && (
+        <div className="panel px-4 py-10 text-center text-sm text-earth-muted">
+          No comparison pair is available for this parameter and period.
+        </div>
       )}
 
       {pairData && (
@@ -219,7 +371,22 @@ export const ComparePage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((row) => (
+              {tableLoading && (
+                <tr>
+                  <td colSpan={6} className="px-3 py-6 text-center text-earth-muted">
+                    Loading the screening table…
+                  </td>
+                </tr>
+              )}
+              {!tableLoading && sortedRows.length === 0 && !tableError && (
+                <tr>
+                  <td colSpan={6} className="px-3 py-6 text-center text-earth-muted">
+                    No objects are available for this parameter and period.
+                  </td>
+                </tr>
+              )}
+              {!tableLoading &&
+                sortedRows.map((row) => (
                 <tr key={row.object_code}>
                   <td className="font-medium text-earth-ink">{row.object_name}</td>
                   <td>
@@ -236,7 +403,11 @@ export const ComparePage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() =>
-                        navigate(`/explore?object=${row.object_code}&variable=${variableParam}`)
+                        navigate(
+                          `/explore?section=${sectionForVariable(variableParam)}&mode=${
+                            row.object_type === 'region' ? 'region' : 'object'
+                          }&object=${row.object_code}&variable=${variableParam}&from=${fromParam}&to=${toParam}`
+                        )
                       }
                       className="text-[13px] font-medium text-earth-blue hover:underline"
                     >

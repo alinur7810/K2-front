@@ -36,8 +36,9 @@ try {
 }
 
 // M1 stub-mode control (enabled by default while the backend is not running; toggled from the header)
-let useMocksMode = storedSource
-  ? storedSource === 'sample'
+const storedMode = storedSource === 'sample' || storedSource === 'live' ? storedSource : null;
+let useMocksMode = storedMode
+  ? storedMode === 'sample'
   : (import.meta.env.VITE_USE_MOCKS ?? 'true') === 'true';
 
 export function getUseMocksMode(): boolean {
@@ -77,7 +78,7 @@ async function requestJson<T>(path: string, params?: Record<string, string | num
   } catch {
     throw new ApiClientError({
       code: 'NETWORK_ERROR',
-      message: 'Unable to connect to the API server (/api/v1). Verify that the backend container is running.',
+      message: `Unable to connect to the API server (${API_BASE}). Verify that the backend is running and reachable.`,
     });
   }
 

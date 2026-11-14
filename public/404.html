@@ -8,7 +8,9 @@
       (function () {
         var segments = location.pathname.split('/').filter(Boolean);
         var base = segments.length ? '/' + segments[0] + '/' : '/';
-        sessionStorage.setItem('gh-pages-redirect', location.href);
+        try {
+          sessionStorage.setItem('gh-pages-redirect', location.href);
+        } catch (e) {}
         location.replace(base);
       })();
     </script>

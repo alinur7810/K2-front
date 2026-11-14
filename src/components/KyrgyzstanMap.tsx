@@ -1,5 +1,13 @@
 import React from 'react';
-import { MapContainer, TileLayer, Marker, CircleMarker, useMap, useMapEvents } from 'react-leaflet';
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  CircleMarker,
+  ZoomControl,
+  useMap,
+  useMapEvents,
+} from 'react-leaflet';
 import L from 'leaflet';
 import { GeoObjectDto, PhenomenonMapObjectDto } from '../types/api';
 
@@ -161,7 +169,9 @@ export const KyrgyzstanMap: React.FC<KyrgyzstanMapProps> = ({
         maxZoom={12}
         className="z-0 h-full w-full"
         scrollWheelZoom={true}
+        zoomControl={false}
       >
+        <ZoomControl position="topright" />
         <FitToMarkers points={fitPoints} />
         <TileLayer
           attribution='Tiles &copy; Esri &mdash; Source: Esri, NASA, USGS'

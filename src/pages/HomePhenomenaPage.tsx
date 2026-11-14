@@ -24,16 +24,20 @@ export const HomePhenomenaPage: React.FC = () => {
   const [selectedObjectCode, setSelectedObjectCode] = useState<string>('issyk_kul');
   const [detail, setDetail] = useState<PhenomenonObjectDetailDto | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [detailLoading, setDetailLoading] = useState<boolean>(false);
+  const [phenomenaError, setPhenomenaError] = useState<string | null>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   useEffect(() => {
     apiClient
       .getPhenomena()
       .then((list) => {
+        setPhenomenaError(null);
         setPhenomena(list);
         if (list.length > 0) setSelectedPhenomenon(list[0].code);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setPhenomenaError(e.message));
   }, []);
 
   useEffect(() => {
@@ -45,27 +49,53 @@ export const HomePhenomenaPage: React.FC = () => {
 
   useEffect(() => {
     if (!selectedPhenomenon) return;
+    let cancelled = false;
     setLoading(true);
-    setError(null);
+    setMapError(null);
+    setMapData(null);
     apiClient
       .getPhenomenonMap(selectedPhenomenon, fromYear, toYear)
       .then((res) => {
+        if (cancelled) return;
         setMapData(res);
         const firstCode = res.objects[0]?.object_code || 'issyk_kul';
         setSelectedObjectCode((prev) =>
           res.objects.some((o) => o.object_code === prev) ? prev : firstCode
         );
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (!cancelled) setMapError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedPhenomenon, fromYear, toYear]);
 
   useEffect(() => {
     if (!selectedPhenomenon || !selectedObjectCode) return;
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+    setDetail(null);
     apiClient
       .getPhenomenonObjectDetail(selectedPhenomenon, selectedObjectCode, fromYear, toYear)
-      .then(setDetail)
-      .catch((e) => setError(e.message));
+      .then((res) => {
+        if (!cancelled) setDetail(res);
+      })
+      .catch((e) => {
+        if (!cancelled) setDetailError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedPhenomenon, selectedObjectCode, fromYear, toYear]);
 
   const selectedStation = mapData?.objects.find((o) => o.object_code === selectedObjectCode);
@@ -77,6 +107,7 @@ export const HomePhenomenaPage: React.FC = () => {
     v === null ? '—' : v < 0.001 ? '<0.001' : v.toFixed(4);
   const sectionForVariable = (code: string) =>
     variables.find((v) => v.code === code)?.section ?? 'water';
+  const exploreMode = selectedStation?.object_type === 'region' ? 'region' : 'object';
 
   return (
     <div className="mx-auto max-w-[1280px] px-4 py-6 sm:px-6">
@@ -155,9 +186,21 @@ export const HomePhenomenaPage: React.FC = () => {
         )}
       </section>
 
-      {error && (
+      {phenomenaError && (
         <div className="panel panel-error mt-4 px-4 py-3 text-sm">
-          Data link error: {error}
+          Data link error while loading phenomena: {phenomenaError}
+        </div>
+      )}
+
+      {mapError && (
+        <div className="panel panel-error mt-4 px-4 py-3 text-sm">
+          Data link error while loading the station map: {mapError}
+        </div>
+      )}
+
+      {detailError && (
+        <div className="panel panel-error mt-4 px-4 py-3 text-sm">
+          Data link error while loading this station: {detailError}
         </div>
       )}
 
@@ -208,7 +251,11 @@ export const HomePhenomenaPage: React.FC = () => {
         </div>
 
         <aside className="panel lg:col-span-5 xl:col-span-4">
-          {detail ? (
+          {detailLoading ? (
+            <div className="px-4 py-10 text-center text-sm text-earth-muted">
+              Loading station detail…
+            </div>
+          ) : detail ? (
             <>
               <div className="flex items-start justify-between gap-3 border-b border-earth-hairline px-5 py-4">
                 <div className="min-w-0">
@@ -253,7 +300,7 @@ export const HomePhenomenaPage: React.FC = () => {
                   </div>
                   <div className="mt-2 font-mono text-lg font-medium text-earth-hydro">
                     {detail.global_trend.sen_slope !== null
-                      ? `+${detail.global_trend.sen_slope}`
+                      ? `${detail.global_trend.sen_slope > 0 ? '+' : ''}${detail.global_trend.sen_slope}`
                       : '—'}
                     <span className="ml-1 text-[11px] font-normal text-earth-muted">
                       {detail.global_trend.unit}/yr
@@ -289,7 +336,7 @@ export const HomePhenomenaPage: React.FC = () => {
                 <button
                   onClick={() =>
                     navigate(
-                      `/explore?section=${sectionForVariable(detail.local_trend.variable_code)}&object=${detail.object_code}&variable=${detail.local_trend.variable_code}&from=${fromYear}&to=${toYear}`
+                      `/explore?section=${sectionForVariable(detail.local_trend.variable_code)}&mode=${exploreMode}&object=${detail.object_code}&variable=${detail.local_trend.variable_code}&from=${fromYear}&to=${toYear}`
                     )
                   }
                   className="nasa-button w-full"
