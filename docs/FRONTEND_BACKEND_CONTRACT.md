@@ -1187,24 +1187,44 @@ Sample mode must render the same screens using `src/api/mockStubs.ts`.
 
 ---
 
-## 12. Deploying the demo for a teammate
+## 12. Deploying the demo with GitHub Pages
 
-This repository is a static Vite SPA. Sample mode requires no backend.
+This repository is a static Vite SPA. Sample mode requires no backend. The included workflow builds the app and publishes `dist/` to GitHub Pages.
 
-### Fastest path: Netlify Drop
+### One-time setup
 
-1. Run `npm run build`.
-2. Open `https://app.netlify.com/drop`.
-3. Upload the `dist/` folder.
-4. Share the generated URL.
-
-`public/_redirects` contains:
+1. Push the app, `public/404.html`, and `.github/workflows/deploy-pages.yml` to the `main` branch.
+2. Open the repository on GitHub: `https://github.com/alinur7810/K2-front`.
+3. Go to **Settings → Pages**.
+4. Under **Build and deployment → Source**, choose **GitHub Actions**.
+5. Open **Actions → Deploy GitHub Pages → Run workflow**, or push another commit to `main`.
+6. Wait for the deploy job to finish. The site URL is:
 
 ```text
-/*    /index.html   200
+https://alinur7810.github.io/K2-front/
 ```
 
-Vite copies it to `dist/_redirects`. It makes direct navigation to `/explore` and `/compare` work after a refresh.
+Do not choose “Deploy from a branch”; that serves source files instead of the built Vite app.
+
+### How routing works on Pages
+
+- `vite.config.ts` derives the production base path from `GITHUB_REPOSITORY`, falling back to `/K2-front/`.
+- `BrowserRouter` uses `import.meta.env.BASE_URL` as its basename.
+- `public/404.html` saves the requested URL, redirects to the project root, and `index.html` restores the path before React renders.
+- Direct links such as `/K2-front/explore` and `/K2-front/compare` survive a refresh.
+
+### Local production preview
+
+```bash
+npm run build
+npm run preview
+```
+
+Open the preview URL including the `/K2-front/` path. To build for a root domain or a differently named repository, override the base:
+
+```bash
+$env:VITE_BASE_PATH="/"; npm run build
+```
 
 ### Important demo note
 
@@ -1212,13 +1232,7 @@ The deployed site uses sample data by default. The “Live data” button will s
 
 ### Updating the demo
 
-After any source change:
-
-```bash
-npm run build
-```
-
-Upload the new `dist/` folder again.
+Push any source change to `main`. The GitHub Actions workflow rebuilds and redeploys automatically.
 
 ---
 
@@ -1271,8 +1285,10 @@ Upload the new `dist/` folder again.
 | `src/components/TrendChart.tsx` | Annual/monthly series and Sen line |
 | `src/components/DualSeriesChart.tsx` | Local/global yearly comparison |
 | `src/components/ChainFlow.tsx` | Sequential variable chain |
-| `vite.config.ts` | Development proxy and environment loading |
-| `public/_redirects` | Netlify SPA fallback |
+| `vite.config.ts` | Development proxy, environment loading, GitHub Pages base path |
+| `public/404.html` | GitHub Pages SPA fallback |
+| `public/.nojekyll` | Disables Jekyll processing on GitHub Pages |
+| `.github/workflows/deploy-pages.yml` | Builds and deploys `dist/` to GitHub Pages |
 | `.env.example` | Environment variable reference |
 
 ---

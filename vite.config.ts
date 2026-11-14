@@ -3,9 +3,10 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+  const repoName = process.env.GITHUB_REPOSITORY?.split('/')[1];
   const base =
     mode === 'production'
-      ? env.VITE_BASE_PATH || '/Be-An-Earth-System-Trend-Detective/'
+      ? env.VITE_BASE_PATH || (repoName ? `/${repoName}/` : '/K2-front/')
       : '/';
 
   return {
